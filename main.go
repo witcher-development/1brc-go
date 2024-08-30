@@ -41,6 +41,14 @@ func round(x float64) float64 {
 	return math.Floor((x+0.05)*10) / 10
 }
 
+func encode(city string, min float64, mean float64, max float64, last bool) string {
+	if (!last) {
+		return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, mean, max)
+	} else {
+		return fmt.Sprintf("%s=%.1f/%.1f/%.1f, ", city, min, mean, max)
+	}
+}
+
 func main() {
 	profFlag := flag.String("p", "", "profiling")
 	flag.Parse()
@@ -84,9 +92,9 @@ func main() {
 
 	memProfiling(*profFlag, "mem_after_sort")
 
-	calc := make(map[string][]float64)
+	output := "{"
 
-	for _, city := range cities {
+	for i, city := range cities {
 		temps := aggregate[city]
 		var sum float64 = 0
 		for _, temp := range temps {
@@ -94,32 +102,14 @@ func main() {
 		}
 		// mean := sum / float64(len(temps))
 		mean := round(round(sum)/float64(len(temps)))
-
-		values := []float64{slices.Min(temps), mean, slices.Max(temps)}
-		calc[city] = values
+		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(temps) - 1)
 	}
 
-	memProfiling(*profFlag, "mem_after_calc")
-
-	output := "{"
-
-	for i, city := range cities {
-		values := calc[city]
-		if (i == len(cities) - 1) {
-			output = output + fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, values[0], values[1], values[2])
-		} else {
-			output = output + fmt.Sprintf("%s=%.1f/%.1f/%.1f, ", city, values[0], values[1], values[2])
-		}
-	}
 	
 	output = output + "}"
 
 	memProfiling(*profFlag, "mem_after_output")
 
 
-	// finish := time.Now()
-	// fmt.Println(output)
 	fmt.Println(time.Since(start))
-	// fmt.Println("--------------------")
-	// fmt.Println(aggregate)
 }
