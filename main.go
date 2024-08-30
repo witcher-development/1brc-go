@@ -7,17 +7,55 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"runtime/pprof"
+	"flag"
 )
+
+
+func cpuProfiling(flag string) func() {
+  if flag != "cpu" {
+    return func() {}
+  }
+  f, err := os.Create("cpu.pprof")
+  if err != nil {
+    panic(err)
+  }
+  pprof.StartCPUProfile(f)
+  return pprof.StopCPUProfile
+}
+
+func memProfiling(flag string, profileName string) {
+  if flag != "mem" {
+    return
+  }
+  f, err := os.Create(profileName + ".pprof")
+  if err != nil {
+    panic(err)
+  }
+  pprof.WriteHeapProfile(f)
+  f.Close()
+}
 
 func round(x float64) float64 {
 	return math.Floor((x+0.05)*10) / 10
 }
 
 func main() {
-	content, err := os.ReadFile("measurments.txt")
+	profFlag := flag.String("p", "", "profiling")
+	flag.Parse()
+
+	stopCPUProfliling := cpuProfiling(*profFlag)
+	defer stopCPUProfliling()
+
+	start := time.Now()
+
+	content, err := os.ReadFile("../1brc/measurements.txt")
 	if err != nil {
 		panic(err)
 	}
+
+	memProfiling(*profFlag, "mem_after_file_read")
 
 	aggregate := make(map[string][]float64)
 	var cities []string
@@ -39,7 +77,12 @@ func main() {
 		}
 		aggregate[city] = append(aggregate[city], temp)
 	}
+
+	memProfiling(*profFlag, "mem_after_aggregate")
+
 	slices.Sort(cities)
+
+	memProfiling(*profFlag, "mem_after_sort")
 
 	calc := make(map[string][]float64)
 
@@ -56,7 +99,7 @@ func main() {
 		calc[city] = values
 	}
 
-	// fmt.Println(calc)
+	memProfiling(*profFlag, "mem_after_calc")
 
 	output := "{"
 
@@ -71,7 +114,12 @@ func main() {
 	
 	output = output + "}"
 
-	fmt.Println(output)
+	memProfiling(*profFlag, "mem_after_output")
+
+
+	// finish := time.Now()
+	// fmt.Println(output)
+	fmt.Println(time.Since(start))
 	// fmt.Println("--------------------")
 	// fmt.Println(aggregate)
 }
