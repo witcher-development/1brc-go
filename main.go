@@ -1,15 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"os"
+	"runtime/pprof"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
-	"runtime/pprof"
-	"flag"
 )
 
 
@@ -58,7 +58,7 @@ func main() {
 
 	start := time.Now()
 
-	content, err := os.ReadFile("../1brc/measurements.txt")
+	content_raw, err := os.ReadFile("../1brc/measurements.txt")
 	if err != nil {
 		panic(err)
 	}
@@ -67,15 +67,18 @@ func main() {
 
 	aggregate := make(map[string][]float64)
 	var cities []string
+	content := string(content_raw)
+	cursor := 0
 
-	lines := strings.Split(string(content), "\n")
-	for i, line := range lines {
-		if i == len(lines) - 1 {
-			break;
-		}
-		segments := strings.Split(line, ";")
-		city := segments[0]
-		temp, err := strconv.ParseFloat(segments[1], 64)
+	for true {
+		index := strings.Index(content[cursor:], "\n")
+		line := content[cursor:cursor+index]
+
+		sep := strings.Index(line, ";")
+		city := line[:sep]
+		temp_raw := line[sep+1:]
+
+		temp, err := strconv.ParseFloat(temp_raw, 64)
 		if err != nil {
 			panic(err)
 		}
@@ -84,6 +87,11 @@ func main() {
 			cities = append(cities, city)
 		}
 		aggregate[city] = append(aggregate[city], temp)
+
+		cursor = cursor + index + 1
+		if cursor > len(content) - 1 {
+			break
+		}
 	}
 
 	memProfiling(*profFlag, "mem_after_aggregate")
@@ -105,7 +113,7 @@ func main() {
 		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(temps) - 1)
 	}
 
-	
+
 	output = output + "}"
 
 	memProfiling(*profFlag, "mem_after_output")
