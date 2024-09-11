@@ -80,7 +80,7 @@ func main() {
 			panic(err)
 		}
 
-		if !slices.Contains(cities, city) {
+		if len(aggregate[city]) == 0 {
 			cities = append(cities, city)
 		}
 		aggregate[city] = append(aggregate[city], temp)
