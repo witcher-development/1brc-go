@@ -68,11 +68,10 @@ func main() {
 	aggregate := make(map[string][]float64)
 	var cities []string
 	content := string(content_raw)
-	cursor := 0
 
 	for true {
-		index := strings.Index(content[cursor:], "\n")
-		line := content[cursor:cursor+index]
+		index := strings.Index(content, "\n")
+		line := content[:index]
 
 		sep := strings.Index(line, ";")
 		city := line[:sep]
@@ -88,10 +87,11 @@ func main() {
 		}
 		aggregate[city] = append(aggregate[city], temp)
 
-		cursor = cursor + index + 1
-		if cursor > len(content) - 1 {
+		if index + 1 == len(content) {
 			break
 		}
+		content = content[index + 1:]
+
 	}
 
 	memProfiling(*profFlag, "mem_after_aggregate")
