@@ -110,7 +110,7 @@ func main() {
 		}
 		// mean := sum / float64(len(temps))
 		mean := round(round(sum)/float64(len(temps)))
-		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(temps) - 1)
+		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(cities) - 1)
 	}
 
 
@@ -119,5 +119,6 @@ func main() {
 	memProfiling(*profFlag, "mem_after_output")
 
 
+	fmt.Println(output)
 	fmt.Println(time.Since(start))
 }
