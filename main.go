@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -62,55 +64,86 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	memProfiling(*profFlag, "mem_after_file_read")
-
-	aggregate := make(map[string][]float64)
-	var cities []string
 	content := string(content_raw)
+
+	var ranges [][2]int
 	cursor := 0
 
 	for true {
 		index := strings.Index(content[cursor:], "\n")
-		line := content[cursor:cursor+index]
+		ranges = append(ranges, [2]int{cursor, index})
+		cursor += index + 1
 
-		sep := strings.Index(line, ";")
-		city := line[:sep]
-		temp_raw := line[sep+1:]
-
-		temp, err := strconv.ParseFloat(temp_raw, 64)
-		if err != nil {
-			panic(err)
-		}
-
-		if len(aggregate[city]) == 0 {
-			cities = append(cities, city)
-		}
-		aggregate[city] = append(aggregate[city], temp)
-
-		cursor = cursor + index + 1
 		if cursor > len(content) - 1 {
 			break
 		}
 	}
 
+	memProfiling(*profFlag, "mem_after_file_read")
+
+	type Aggregate struct {
+		data map[string][]float64
+		cities []string
+		mu sync.Mutex
+	}
+	ag := Aggregate{data: make(map[string][]float64)}
+
+	var wg sync.WaitGroup
+
+	perRange := len(ranges) / runtime.NumCPU()
+	fmt.Println(perRange)
+	for i := 0; i < len(ranges); i += perRange {
+		wg.Add(1)
+		
+		go func() {
+			defer wg.Done()
+			lagg := make(map[string][]float64)
+			for j := i; j < i + perRange; j++ {
+				line := content[ranges[j][0]:ranges[j][0]+ranges[j][1]]
+
+				sep := strings.Index(line, ";")
+				city := line[:sep]
+				temp_raw := line[sep+1:]
+
+				temp, err := strconv.ParseFloat(temp_raw, 64)
+				if err != nil {
+					panic(err)
+				}
+				
+				lagg[city] = append(lagg[city], temp)
+			}
+
+			ag.mu.Lock()
+			defer ag.mu.Unlock()
+
+			for city, temps := range lagg {
+				if len(ag.data[city]) == 0 {
+					ag.cities = append(ag.cities, city)
+				}
+				ag.data[city] = append(ag.data[city], temps...)
+			}
+		}()
+	}
+
+	wg.Wait()
+
 	memProfiling(*profFlag, "mem_after_aggregate")
 
-	slices.Sort(cities)
+	slices.Sort(ag.cities)
 
 	memProfiling(*profFlag, "mem_after_sort")
 
 	output := "{"
 
-	for i, city := range cities {
-		temps := aggregate[city]
+	for i, city := range ag.cities {
+		temps := ag.data[city]
 		var sum float64 = 0
 		for _, temp := range temps {
 			sum += temp
 		}
 		// mean := sum / float64(len(temps))
 		mean := round(round(sum)/float64(len(temps)))
-		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(cities) - 1)
+		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(ag.cities) - 1)
 	}
 
 
