@@ -51,35 +51,60 @@ func encode(city string, min float64, mean float64, max float64, last bool) stri
 	}
 }
 
+func printMemStats(message string, rtm runtime.MemStats){
+	fmt.Println("\n===", message, "===")
+	fmt.Println("Mallocs: ", rtm.Mallocs)
+	fmt.Println("Frees: ", rtm.Frees)
+	fmt.Println("LiveObjects: ", rtm.Mallocs - rtm.Frees)
+	fmt.Println("PauseTotalNs: ", rtm.PauseTotalNs)
+	fmt.Println("NumGC: ", rtm.NumGC)
+	fmt.Println("LastGC: ", time.UnixMilli(int64(rtm.LastGC/1_000_000)))
+	fmt.Println("HeapObjects: ", rtm.HeapObjects)
+	fmt.Println("HeapAlloc: ", rtm.HeapAlloc)
+}
+
 func main() {
 	profFlag := flag.String("p", "", "profiling")
 	flag.Parse()
+
+	var rtm runtime.MemStats
+	runtime.ReadMemStats(&rtm)
 
 	stopCPUProfliling := cpuProfiling(*profFlag)
 	defer stopCPUProfliling()
 
 	start := time.Now()
 
-	content_raw, err := os.ReadFile("../1brc/measurements.txt")
+	content_raw, err := os.ReadFile("../1brc/measurements_1b.txt")
 	if err != nil {
 		panic(err)
 	}
 	content := string(content_raw)
+	fmt.Println("after file read")
 
-	var ranges [][2]int
-	cursor := 0
+	var ranges [][2]int64
+	var cursor int64 = 0
+	cl := int64(len(content))
+
+	printMemStats("Start", rtm)
 
 	for true {
-		index := strings.Index(content[cursor:], "\n")
-		ranges = append(ranges, [2]int{cursor, index})
+		index := int64(strings.Index(content[cursor:], "\n"))
+		ranges = append(ranges, [2]int64{cursor, index})
 		cursor += index + 1
 
-		if cursor > len(content) - 1 {
+		if cursor % 10000000 == 0 {
+			runtime.GC()
+			// fmt.Println("creating ranges", cursor, cl)
+			// printMemStats(string(cursor), rtm)
+		}
+		if cursor > cl - 1 {
 			break
 		}
 	}
 
 	memProfiling(*profFlag, "mem_after_file_read")
+	// printMemStats("Start", rtm)
 
 	type Aggregate struct {
 		data map[string][]float64
@@ -93,8 +118,14 @@ func main() {
 	perRange := len(ranges) / runtime.NumCPU()
 	fmt.Println(perRange)
 	for i := 0; i < len(ranges); i += perRange {
+		fmt.Println("+ routine 1")
 		wg.Add(1)
+
+		// if i == 62500 {
+		// 	memProfiling(*profFlag, "mem_loop")
+		// }
 		
+		fmt.Println("+ routine")
 		go func() {
 			defer wg.Done()
 			lagg := make(map[string][]float64)
@@ -124,6 +155,8 @@ func main() {
 			}
 		}()
 	}
+
+	fmt.Println("after aggregate")
 
 	wg.Wait()
 
