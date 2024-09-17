@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -63,6 +65,25 @@ func printMemStats(message string, rtm runtime.MemStats){
 	fmt.Println("HeapAlloc: ", rtm.HeapAlloc)
 }
 
+// func lineCounter(r io.Reader) (int, error) {
+//     buf := make([]byte, 14*1024*1024*1024)
+//     count := 0
+//     lineSep := []byte{'\n'}
+//
+//     for {
+//         c, err := r.Read(buf)
+//         count += bytes.Count(buf[:c], lineSep)
+//
+//         switch {
+//         case err == io.EOF:
+//             return count, nil
+//
+//         case err != nil:
+//             return count, err
+//         }
+//     }
+// }
+
 func main() {
 	profFlag := flag.String("p", "", "profiling")
 	flag.Parse()
@@ -75,36 +96,16 @@ func main() {
 
 	start := time.Now()
 
-	content_raw, err := os.ReadFile("../1brc/measurements_1b.txt")
+	file, err := os.Open("../1brc/measurements_1b.txt")
 	if err != nil {
 		panic(err)
 	}
-	content := string(content_raw)
-	fmt.Println("after file read")
 
-	var ranges [][2]int64
+	stat, err := file.Stat()
+	perRange := stat.Size() / int64(runtime.NumCPU())
+	file.Close()
+	var wg sync.WaitGroup
 	var cursor int64 = 0
-	cl := int64(len(content))
-
-	printMemStats("Start", rtm)
-
-	for true {
-		index := int64(strings.Index(content[cursor:], "\n"))
-		ranges = append(ranges, [2]int64{cursor, index})
-		cursor += index + 1
-
-		if cursor % 10000000 == 0 {
-			runtime.GC()
-			// fmt.Println("creating ranges", cursor, cl)
-			// printMemStats(string(cursor), rtm)
-		}
-		if cursor > cl - 1 {
-			break
-		}
-	}
-
-	memProfiling(*profFlag, "mem_after_file_read")
-	// printMemStats("Start", rtm)
 
 	type Aggregate struct {
 		data map[string][]float64
@@ -113,24 +114,47 @@ func main() {
 	}
 	ag := Aggregate{data: make(map[string][]float64)}
 
-	var wg sync.WaitGroup
-
-	perRange := len(ranges) / runtime.NumCPU()
-	fmt.Println(perRange)
-	for i := 0; i < len(ranges); i += perRange {
-		fmt.Println("+ routine 1")
+	for cursor < stat.Size() - 1 {
 		wg.Add(1)
 
-		// if i == 62500 {
-		// 	memProfiling(*profFlag, "mem_loop")
-		// }
-		
-		fmt.Println("+ routine")
-		go func() {
-			defer wg.Done()
+		go func(cursor int64, perRange int64) {
+			file, err := os.Open("../1brc/measurements_1b.txt")
+			if err != nil {
+				panic(err)
+			}
+			defer func () {
+				file.Close()
+				wg.Done()
+				runtime.GC()
+				fmt.Println("freed")
+			}()
+
+			file.Seek(cursor, 0)
+			reader := bufio.NewReader(file)
+
+			if cursor != 0 {
+				_, err := reader.ReadBytes('\n')
+				if err == io.EOF {
+					fmt.Println("EOF")
+					return
+				}
+
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			scanner := bufio.NewScanner(reader)
+
 			lagg := make(map[string][]float64)
-			for j := i; j < i + perRange; j++ {
-				line := content[ranges[j][0]:ranges[j][0]+ranges[j][1]]
+
+			var cum int64 = 0
+			for scanner.Scan() {
+				if cum > cursor + perRange {
+					break
+				}
+				line := scanner.Text()
+				cum += int64(len(line))
 
 				sep := strings.Index(line, ";")
 				city := line[:sep]
@@ -140,7 +164,7 @@ func main() {
 				if err != nil {
 					panic(err)
 				}
-				
+
 				lagg[city] = append(lagg[city], temp)
 			}
 
@@ -153,12 +177,50 @@ func main() {
 				}
 				ag.data[city] = append(ag.data[city], temps...)
 			}
-		}()
+
+		}(cursor, perRange)
+
+		cursor += perRange
 	}
-
-	fmt.Println("after aggregate")
-
 	wg.Wait()
+
+	// count, err := lineCounter(file)
+
+	// fmt.Println(time.Since(start))
+	// fmt.Println(count)
+	// return
+	// content_raw, err := os.ReadFile("../1brc/measurements_1b.txt")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	//
+	// content := string(content_raw)
+	// fmt.Println("after file read")
+	//
+	// var ranges []int64
+	// var cursor int64 = 0
+	// cl := int64(len(content))
+	//
+	// printMemStats("Start", rtm)
+	//
+	// for true {
+	// 	index := int64(strings.Index(content[cursor:], "\n"))
+	// 	ranges = append(ranges, cursor+index)
+	// 	cursor += index + 1
+	//
+	// 	// if cursor % 10000000 == 0 {
+	// 	// 	memProfiling(*profFlag, "mem_in_loop")
+	// 		// runtime.GC()
+	// 		// fmt.Println("creating ranges", cursor, cl)
+	// 		// printMemStats(string(cursor), rtm)
+	// 	// }
+	// 	if cursor > cl - 1 {
+	// 		break
+	// 	}
+	// }
+	//
+	// memProfiling(*profFlag, "mem_after_file_read")
+	// printMemStats("Start", rtm)
 
 	memProfiling(*profFlag, "mem_after_aggregate")
 
@@ -168,6 +230,7 @@ func main() {
 
 	output := "{"
 
+	fmt.Println("we got here")
 	for i, city := range ag.cities {
 		temps := ag.data[city]
 		var sum float64 = 0
@@ -181,9 +244,10 @@ func main() {
 
 
 	output = output + "}"
-
-	memProfiling(*profFlag, "mem_after_output")
-
-
+	//
+	// memProfiling(*profFlag, "mem_after_output")
+	//
+	//
 	fmt.Println(time.Since(start))
+	// fmt.Println(output)
 }
