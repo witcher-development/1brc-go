@@ -40,11 +40,11 @@ func memProfiling(flag string, profileName string) {
 	f.Close()
 }
 
-func round(x float64) float64 {
-	return math.Floor((x+0.05)*10) / 10
+func round(x float32) float32 {
+	return float32(math.Floor(float64((x+0.05)*10)) / 10)
 }
 
-func encode(city string, min float64, mean float64, max float64, last bool) string {
+func encode(city string, min float32, mean float32, max float32, last bool) string {
 	if (!last) {
 		return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, mean, max)
 	} else {
@@ -106,13 +106,13 @@ func main() {
 	var cursor int64 = 0
 
 	type Aggregate struct {
-		data map[string][]float64
+		data map[string][]float32
 		cities []string
 	}
-	ag := Aggregate{data: make(map[string][]float64)}
+	ag := Aggregate{data: make(map[string][]float32)}
 
 	type Message struct {
-		data map[string][]float64;
+		data map[string][]float32;
 		index int
 	}
 	c := make(chan Message, 10)
@@ -146,7 +146,7 @@ func main() {
 
 			scanner := bufio.NewScanner(reader)
 
-			lagg := make(map[string][]float64)
+			lagg := make(map[string][]float32)
 
 			var cum int64 = 0
 			// fmt.Println("new routine", cursor / perRange, time.Since(start))
@@ -161,12 +161,12 @@ func main() {
 				city := line[:sep]
 				temp_raw := line[sep+1:]
 
-				temp, err := strconv.ParseFloat(temp_raw, 64)
+				temp, err := strconv.ParseFloat(temp_raw, 32)
 				if err != nil {
 					panic(err)
 				}
 
-				lagg[city] = append(lagg[city], temp)
+				lagg[city] = append(lagg[city], float32(temp))
 			}
 			// fmt.Println("old routine", cursor / perRange, time.Since(start))
 
@@ -260,12 +260,12 @@ func main() {
 	fmt.Println(time.Since(start))
 	for i, city := range ag.cities {
 		temps := ag.data[city]
-		var sum float64 = 0
+		var sum float32 = 0
 		for _, temp := range temps {
 			sum += temp
 		}
 		// mean := sum / float64(len(temps))
-		mean := round(round(sum)/float64(len(temps)))
+		mean := round(round(sum)/float32(len(temps)))
 		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(ag.cities) - 1)
 	}
 
