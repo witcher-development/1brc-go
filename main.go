@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -53,8 +52,7 @@ func encode(city string, min float64, mean float64, max float64, last bool) stri
 	}
 }
 
-func printMemStats(message string, rtm runtime.MemStats){
-	fmt.Println("\n===", message, "===")
+func printMemStats(rtm runtime.MemStats){
 	fmt.Println("Mallocs: ", rtm.Mallocs)
 	fmt.Println("Frees: ", rtm.Frees)
 	fmt.Println("LiveObjects: ", rtm.Mallocs - rtm.Frees)
@@ -88,8 +86,7 @@ func main() {
 	profFlag := flag.String("p", "", "profiling")
 	flag.Parse()
 
-	var rtm runtime.MemStats
-	runtime.ReadMemStats(&rtm)
+	// var rtm runtime.MemStats
 
 	stopCPUProfliling := cpuProfiling(*profFlag)
 	defer stopCPUProfliling()
@@ -102,31 +99,34 @@ func main() {
 	}
 
 	stat, err := file.Stat()
-	perRange := stat.Size() / int64(runtime.NumCPU())
+	routinesCount := runtime.NumCPU() - 1
+	perRange := stat.Size() / int64(routinesCount)
 	file.Close()
-	var wg sync.WaitGroup
+
 	var cursor int64 = 0
 
 	type Aggregate struct {
 		data map[string][]float64
 		cities []string
-		mu sync.Mutex
 	}
 	ag := Aggregate{data: make(map[string][]float64)}
 
-	for cursor < stat.Size() - 1 {
-		wg.Add(1)
+	type Message struct {
+		data map[string][]float64;
+		index int
+	}
+	c := make(chan Message, 10)
 
+	for cursor < stat.Size() - 1 {
 		go func(cursor int64, perRange int64) {
+			// fmt.Println("new routine", cursor / perRange, stat.Size() - cursor)
 			file, err := os.Open("../1brc/measurements_1b.txt")
 			if err != nil {
 				panic(err)
 			}
 			defer func () {
 				file.Close()
-				wg.Done()
 				runtime.GC()
-				fmt.Println("freed")
 			}()
 
 			file.Seek(cursor, 0)
@@ -149,6 +149,7 @@ func main() {
 			lagg := make(map[string][]float64)
 
 			var cum int64 = 0
+			// fmt.Println("new routine", cursor / perRange, time.Since(start))
 			for scanner.Scan() {
 				if cum > cursor + perRange {
 					break
@@ -167,22 +168,47 @@ func main() {
 
 				lagg[city] = append(lagg[city], temp)
 			}
+			// fmt.Println("old routine", cursor / perRange, time.Since(start))
 
-			ag.mu.Lock()
-			defer ag.mu.Unlock()
-
-			for city, temps := range lagg {
-				if len(ag.data[city]) == 0 {
-					ag.cities = append(ag.cities, city)
-				}
-				ag.data[city] = append(ag.data[city], temps...)
+			c <- Message{
+				data: lagg,
+				index: int(cursor / perRange),
 			}
+			// fmt.Println(time.Since(start))
 
+			// runtime.ReadMemStats(&rtm)
+			// printMemStats(rtm)
+			// runtime.GC()
+			// fmt.Println("--------------------------------")
+			// runtime.ReadMemStats(&rtm)
+			// printMemStats(rtm)
+
+			// fmt.Println("--------------------------------")
 		}(cursor, perRange)
 
 		cursor += perRange
 	}
-	wg.Wait()
+
+	messagesCounter := 0
+	for message := range c {
+		messagesCounter++
+		// fmt.Println("receive message", message.index, len(message.data))
+		fmt.Println("loop start", message.index, time.Since(start))
+		for city, temps := range message.data {
+			if _, ok := ag.data[city]; !ok {
+				ag.cities = append(ag.cities, city)
+			}
+			ag.data[city] = append(ag.data[city], temps...)
+		}
+		fmt.Println("loop end", message.index, time.Since(start))
+		if messagesCounter == routinesCount + 1 {
+			close(c)
+		}
+	}
+
+	// fmt.Println("after channel")
+
+	// wg.Wait()
 
 	// count, err := lineCounter(file)
 
@@ -231,6 +257,7 @@ func main() {
 	output := "{"
 
 	fmt.Println("we got here")
+	fmt.Println(time.Since(start))
 	for i, city := range ag.cities {
 		temps := ag.data[city]
 		var sum float64 = 0
