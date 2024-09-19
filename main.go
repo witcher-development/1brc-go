@@ -106,10 +106,10 @@ func main() {
 	var cursor int64 = 0
 
 	type Aggregate struct {
-		data map[string][]float32
+		data map[string]map[float32]int
 		cities []string
 	}
-	ag := Aggregate{data: make(map[string][]float32)}
+	ag := Aggregate{data: make(map[string]map[float32]int)}
 
 	type Message struct {
 		data map[string][]float32;
@@ -197,14 +197,22 @@ func main() {
 		for city, temps := range message.data {
 			if _, ok := ag.data[city]; !ok {
 				ag.cities = append(ag.cities, city)
+				ag.data[city] = make(map[float32]int)
 			}
-			ag.data[city] = append(ag.data[city], temps...)
+			for _, temp := range temps {
+				if _, ok := ag.data[city][temp]; ok {
+					ag.data[city][temp]++
+				}
+				ag.data[city][temp] = 1
+			}
+			// ag.data[city] = append(ag.data[city], temps...)
 		}
 		fmt.Println("loop end", message.index, time.Since(start))
 		if messagesCounter == routinesCount + 1 {
 			close(c)
 		}
 	}
+	fmt.Println(ag.data)
 
 	// fmt.Println("after channel")
 
@@ -258,16 +266,16 @@ func main() {
 
 	fmt.Println("we got here")
 	fmt.Println(time.Since(start))
-	for i, city := range ag.cities {
-		temps := ag.data[city]
-		var sum float32 = 0
-		for _, temp := range temps {
-			sum += temp
-		}
-		// mean := sum / float64(len(temps))
-		mean := round(round(sum)/float32(len(temps)))
-		output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(ag.cities) - 1)
-	}
+	// for i, city := range ag.cities {
+	// 	temps := ag.data[city]
+	// 	var sum float32 = 0
+	// 	for _, temp := range temps {
+	// 		sum += temp
+	// 	}
+	// 	// mean := sum / float64(len(temps))
+	// 	mean := round(round(sum)/float32(len(temps)))
+	// 	output += encode(city, slices.Min(temps), mean, slices.Max(temps), i < len(ag.cities) - 1)
+	// }
 
 
 	output = output + "}"
